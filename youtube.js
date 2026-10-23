@@ -11,6 +11,7 @@
   let speechSession = null;
   let speechRetryAt = 0;
   let lastSpokenSkipAt = 0;
+  let fingerprintSession = null;
 
   if (Speech?.available && 'processLocally' in Speech.prototype) {
     Speech.available({ langs: ['ru-RU'], processLocally: true }).then(async status => {
@@ -41,6 +42,13 @@
     old.track.stop();
   }
 
+  function stopFingerprint() {
+    const old = fingerprintSession;
+    fingerprintSession = null;
+    old?.matcher.stop();
+    old?.track.stop();
+  }
+
   function activeKey() {
     return `${currentId() || ''}|${video?.currentSrc || video?.src || ''}`;
   }
@@ -51,7 +59,28 @@
     if (!AdDetector.seekFourSeconds(video)) return { ok: false, reason: 'перемотка недоступна' };
     lastSpokenSkipAt = Date.now();
     stopSpeech();
+    stopFingerprint();
     return { ok: true };
+  }
+
+  function listenForFingerprint() {
+    if (!globalThis.AdAudioFingerprint || !video || typeof video.captureStream !== 'function') return;
+    const key = activeKey();
+    if (fingerprintSession?.video === video && fingerprintSession.key === key) return;
+    stopFingerprint();
+    let stream;
+    let track;
+    try {
+      stream = video.captureStream();
+      track = stream.getAudioTracks().find(item => item.readyState === 'live');
+    } catch (_) { return; }
+    if (!track) return;
+    const session = { video, key, track, matcher: null };
+    session.matcher = AdAudioFingerprint.listen(stream, result => {
+      if (fingerprintSession !== session || activeKey() !== key || video.paused) return;
+      if (skipSpoken().ok) console.debug('Ad skipper audio match', result.name, result.score, result.elapsedMs);
+    });
+    fingerprintSession = session;
   }
 
   function listenToVideo() {
@@ -131,10 +160,12 @@
       lastCaptionSkipAt = 0;
       segments = [];
       stopSpeech();
+      stopFingerprint();
       if (id && video) load(id);
     }
     if (!id || !video || video.paused || !Number.isFinite(video.duration) || document.querySelector('.ad-showing')) return;
     listenToVideo();
+    listenForFingerprint();
     const segment = segments.find(([start, end]) => video.currentTime >= start && video.currentTime < end - 0.15);
     if (segment && lastSkip !== segment[1]) {
       video.currentTime = Math.min(segment[1], video.duration);

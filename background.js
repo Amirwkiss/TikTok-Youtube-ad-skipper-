@@ -1,6 +1,8 @@
 const API = 'https://sponsor.ajay.app/api/skipSegments';
 const supportedVideoTab = url => /^https:\/\/(?:www\.tiktok\.com|(?:www|m)\.youtube\.com)\//.test(url || '');
-const contentFiles = url => /youtube\.com\//.test(url || '') ? ['detector.js', 'youtube.js'] : ['detector.js', 'tiktok.js'];
+const contentFiles = url => /youtube\.com\//.test(url || '') ?
+  ['detector.js', 'audio-references.js', 'audio-fingerprint.js', 'youtube.js'] :
+  ['detector.js', 'audio-references.js', 'audio-fingerprint.js', 'tiktok.js'];
 chrome.action.setPopup?.({ popup: '' }).catch(() => {});
 
 async function setBadge(tabId, text, color = '#16a34a', reason = '') {
@@ -8,7 +10,8 @@ async function setBadge(tabId, text, color = '#16a34a', reason = '') {
   if (text) await chrome.action.setBadgeBackgroundColor({ tabId, color });
   await chrome.action.setTitle({
     tabId,
-    title: reason || (text === 'ON' ? 'Локальное распознавание речи TikTok включено. Нажмите, чтобы выключить.' :
+    title: reason || (text === 'ON' ? 'Локальное распознавание речи включено. Нажмите, чтобы выключить.' :
+      text === 'FPR' ? 'Локальное сравнение звуковых отпечатков включено. Нажмите, чтобы выключить.' :
       text === 'CLD' ? 'Облачное распознавание речи TikTok включено. Звук может передаваться сервису Chrome/Google. Нажмите, чтобы выключить.' :
       text === 'ERR' ? `Распознавание не запустилось: ${reason || 'неизвестная ошибка'}` :
       'Нажмите во вкладке TikTok или YouTube, чтобы включить распознавание речи.')
@@ -64,7 +67,7 @@ chrome.action.onClicked.addListener(async tab => {
       allowCloud: settings.allowCloudSpeech === true
     });
     if (!response?.ok) throw new Error(response?.error || 'Не удалось начать распознавание');
-    await setBadge(tab.id, response.mode === 'cloud' ? 'CLD' : 'ON');
+    await setBadge(tab.id, response.mode === 'cloud' ? 'CLD' : response.mode === 'fingerprint' ? 'FPR' : 'ON');
   } catch (error) {
     await showError(tab.id, error);
     console.error('Ad skipper speech:', error);

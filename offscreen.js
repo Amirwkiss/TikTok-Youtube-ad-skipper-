@@ -7,6 +7,7 @@
   let meterTimer = null;
   let heardAudio = false;
   let lastBrandAt = 0;
+  let fingerprintMatcher = null;
 
   function emitBrand(context) {
     if (Date.now() - lastBrandAt < 8000) return;
@@ -28,6 +29,8 @@
     meterTimer = null;
     heardAudio = false;
     lastBrandAt = 0;
+    fingerprintMatcher?.stop();
+    fingerprintMatcher = null;
     const oldRecognition = recognition;
     recognition = null;
     if (oldRecognition) {
@@ -100,7 +103,6 @@
   async function start(message) {
     await stop();
     const Speech = globalThis.SpeechRecognition;
-    if (!Speech?.available || !('processLocally' in Speech.prototype)) throw new Error('Локальное распознавание речи недоступно');
     media = await navigator.mediaDevices.getUserMedia({
       audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: message.streamId } },
       video: false
@@ -122,6 +124,18 @@
         report('audio');
       }
     }, 500);
+    const track = media.getAudioTracks()[0];
+    if (!track) throw new Error('Вкладка не передаёт звук');
+    track.onended = () => { chrome.runtime.sendMessage({ type: 'speech-stopped', tabId }); stop(); };
+    fingerprintMatcher = globalThis.AdAudioFingerprint?.listen(media, async result => {
+      const context = await chrome.runtime.sendMessage({ type: 'speech-context-request', tabId }).catch(() => null);
+      report('transcript', `звук: ${result.name} (${result.score.toFixed(2)}, ${result.elapsedMs.toFixed(0)} мс)`);
+      emitBrand(context);
+    }) || null;
+    if (!Speech?.available || !('processLocally' in Speech.prototype)) {
+      if (fingerprintMatcher) return 'fingerprint';
+      throw new Error('Локальное распознавание речи недоступно');
+    }
     let status = 'unavailable';
     try {
       status = await Speech.available({ langs: ['ru-RU'], processLocally: true });
@@ -131,10 +145,10 @@
       }
     } catch (_) {}
     const useCloud = status !== 'available';
-    if (useCloud && !message.allowCloud) throw new Error('Русский языковой пакет недоступен');
-    const track = media.getAudioTracks()[0];
-    if (!track) throw new Error('Вкладка не передаёт звук');
-    track.onended = () => { chrome.runtime.sendMessage({ type: 'speech-stopped', tabId }); stop(); };
+    if (useCloud && !message.allowCloud) {
+      if (fingerprintMatcher) return 'fingerprint';
+      throw new Error('Русский языковой пакет недоступен');
+    }
     listen(track, useCloud);
     return useCloud ? 'cloud' : 'local';
   }

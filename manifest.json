@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Пропуск рекламы в видео",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Пропускает спонсорские отрезки YouTube и распознанные рекламные фразы в видео YouTube и TikTok.",
   "permissions": ["activeTab", "offscreen", "scripting", "storage", "tabCapture"],
   "host_permissions": ["https://sponsor.ajay.app/*"],
@@ -9,12 +9,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
-      "js": ["detector.js", "youtube.js"],
+      "js": ["detector.js", "audio-references.js", "audio-fingerprint.js", "youtube.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.tiktok.com/*"],
-      "js": ["detector.js", "tiktok.js"],
+      "js": ["detector.js", "audio-references.js", "audio-fingerprint.js", "tiktok.js"],
       "run_at": "document_idle"
     }
   ],

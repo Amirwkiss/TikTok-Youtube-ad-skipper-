@@ -64,9 +64,29 @@ const run = (name, context) => vm.runInNewContext(read(name), context, { filenam
   await badgeSet;
   assert.equal(attempts, 2);
   assert.equal(injected.target.tabId, 42);
-  assert.deepEqual(Array.from(injected.files), ['detector.js', 'tiktok.js']);
+  assert.deepEqual(Array.from(injected.files), ['detector.js', 'audio-references.js', 'audio-fingerprint.js', 'tiktok.js']);
   assert.equal(forwarded.context.key, '|clip-1');
   console.log('PASS background: missing TikTok listener is re-injected and skip retried');
+}
+
+{
+  const context = { globalThis: {}, atob };
+  context.globalThis = context;
+  run('audio-references.js', context);
+  run('audio-fingerprint.js', context);
+  for (const [expected, item] of Object.entries(context.AdAudioReferences)) {
+    const raw = atob(item.data);
+    const frameCount = 1 + Math.floor((16000 - 512) / 160);
+    const values = new Float32Array(frameCount * 24);
+    for (let i = 0; i < values.length; i++) {
+      const value = raw.charCodeAt(i);
+      values[i] = (value > 127 ? value - 256 : value) / 127;
+    }
+    const result = context.AdAudioFingerprint.matchFeatures({ frames: frameCount, values });
+    assert.equal(result.name, expected);
+    assert.ok(result.score > 0.9);
+  }
+  console.log('PASS audio fingerprint: both bundled references match one-second slices');
 }
 
 {

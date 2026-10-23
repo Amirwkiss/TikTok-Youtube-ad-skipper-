@@ -6,6 +6,7 @@
   let cloudAllowed = false;
   let speechSession = null;
   let speechRetryAt = 0;
+  let fingerprintSession = null;
 
   if (Speech?.available && 'processLocally' in Speech.prototype) {
     Speech.available({ langs: ['ru-RU'], processLocally: true })
@@ -41,6 +42,13 @@
     session.track.stop();
   }
 
+  function stopFingerprint() {
+    const old = fingerprintSession;
+    fingerprintSession = null;
+    old?.matcher.stop();
+    old?.track.stop();
+  }
+
   function skipSpoken(video, key) {
     const last = spokenSkips.get(video);
     if (last?.key === key && video.currentTime < last.endTime + 4 && video.currentTime >= last.endTime - 4) {
@@ -51,7 +59,27 @@
     }
     spokenSkips.set(video, { key, endTime: video.currentTime });
     stopSpeech();
+    stopFingerprint();
     return { ok: true };
+  }
+
+  function listenForFingerprint(video, key) {
+    if (!globalThis.AdAudioFingerprint || typeof video.captureStream !== 'function') return;
+    if (fingerprintSession?.video === video && fingerprintSession.key === key) return;
+    stopFingerprint();
+    let stream;
+    let track;
+    try {
+      stream = video.captureStream();
+      track = stream.getAudioTracks().find(item => item.readyState === 'live');
+    } catch (_) { return; }
+    if (!track) return;
+    const session = { video, key, track, matcher: null };
+    session.matcher = AdAudioFingerprint.listen(stream, result => {
+      if (fingerprintSession !== session || !visible(video) || video.paused || videoKey(video) !== key) return;
+      if (skipSpoken(video, key).ok) console.debug('Ad skipper audio match', result.name, result.score, result.elapsedMs);
+    });
+    fingerprintSession = session;
   }
 
   function listenToVideo(video, key) {
@@ -149,6 +177,7 @@
     if (!AdDetector.seekFourSeconds(video)) return false;
     processed.set(video, key);
     stopSpeech();
+    stopFingerprint();
     return true;
   }
 
@@ -170,6 +199,7 @@
       const card = findCard(video);
       if (!card) continue;
       const key = videoKey(video, card);
+      listenForFingerprint(video, key);
       if (processed.get(video) === key) {
         listenToVideo(video, key);
         continue;
@@ -182,6 +212,7 @@
       }
     }
     if (speechSession && speechSession.video !== activeVideo) stopSpeech();
+    if (fingerprintSession && fingerprintSession.video !== activeVideo) stopFingerprint();
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, reply) => {
