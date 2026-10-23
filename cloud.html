@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<style>
+body{font:14px/1.5 Arial,sans-serif;width:300px;margin:16px;color:#222}
+h1{font-size:18px;margin:0 0 10px}button{padding:9px 12px;margin:6px 6px 0 0;border:0;border-radius:7px;background:#1264a3;color:white;cursor:pointer}
+button.secondary{background:#555}p{margin:8px 0}
+</style>
+<h1>Распознавание речи</h1>
+<p>Если локальный русский языковой пакет Chrome недоступен, можно разрешить облачное распознавание.</p>
+<p><strong>При включении звук вкладки TikTok может передаваться сервису распознавания речи Chrome/Google.</strong> Расширение не сохраняет записи.</p>
+<button id="allow">Разрешить облачное распознавание</button>
+<button id="deny" class="secondary">Только текст и субтитры</button>
+<p id="status"></p>
+<script src="cloud.js"></script>
+</html>
