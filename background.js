@@ -1,4 +1,7 @@
 const API = 'https://sponsor.ajay.app/api/skipSegments';
+const supportedVideoTab = url => /^https:\/\/(?:www\.tiktok\.com|(?:www|m)\.youtube\.com)\//.test(url || '');
+const contentFiles = url => /youtube\.com\//.test(url || '') ? ['detector.js', 'youtube.js'] : ['detector.js', 'tiktok.js'];
+chrome.action.setPopup?.({ popup: '' }).catch(() => {});
 
 async function setBadge(tabId, text, color = '#16a34a', reason = '') {
   await chrome.action.setBadgeText({ tabId, text });
@@ -8,7 +11,7 @@ async function setBadge(tabId, text, color = '#16a34a', reason = '') {
     title: reason || (text === 'ON' ? 'Локальное распознавание речи TikTok включено. Нажмите, чтобы выключить.' :
       text === 'CLD' ? 'Облачное распознавание речи TikTok включено. Звук может передаваться сервису Chrome/Google. Нажмите, чтобы выключить.' :
       text === 'ERR' ? `Распознавание не запустилось: ${reason || 'неизвестная ошибка'}` :
-      'Нажмите во вкладке TikTok, чтобы включить распознавание речи.')
+      'Нажмите во вкладке TikTok или YouTube, чтобы включить распознавание речи.')
   });
 }
 
@@ -23,7 +26,7 @@ async function ensureOffscreen() {
   if (!contexts.length) {
     await chrome.offscreen.createDocument({
       url: 'offscreen.html', reasons: ['USER_MEDIA'],
-      justification: 'Локально распознавать рекламные фразы в звуке вкладки TikTok'
+      justification: 'Распознавать рекламные фразы в звуке вкладки TikTok или YouTube'
     });
   }
 }
@@ -33,13 +36,14 @@ async function sendToTab(tabId, message) {
     return await chrome.tabs.sendMessage(tabId, message);
   } catch (firstError) {
     // Chrome invalidates content scripts when an unpacked extension is reloaded.
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['detector.js', 'tiktok.js'] });
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.scripting.executeScript({ target: { tabId }, files: contentFiles(tab.url) });
     return chrome.tabs.sendMessage(tabId, message);
   }
 }
 
 chrome.action.onClicked.addListener(async tab => {
-  if (!tab.id || !tab.url?.startsWith('https://www.tiktok.com/')) return;
+  if (!tab.id || !supportedVideoTab(tab.url)) return;
   const captured = await chrome.tabCapture.getCapturedTabs();
   const active = captured.find(item => item.status === 'active' || item.status === 'pending');
   if (active?.tabId === tab.id) {
@@ -63,9 +67,6 @@ chrome.action.onClicked.addListener(async tab => {
     await setBadge(tab.id, response.mode === 'cloud' ? 'CLD' : 'ON');
   } catch (error) {
     await showError(tab.id, error);
-    if (String(error).includes('Русский языковой пакет недоступен')) {
-      await chrome.action.setPopup({ popup: 'cloud.html' });
-    }
     console.error('Ad skipper speech:', error);
   }
 });

@@ -55,7 +55,7 @@ const run = (name, context) => vm.runInNewContext(read(name), context, { filenam
         async setBadgeBackgroundColor() {}, async setTitle() {}
       },
       runtime: { onMessage: { addListener: fn => { listener = fn; } }, getURL: path => `chrome-extension://test/${path}` },
-      tabs: { async sendMessage(_tabId, message) { attempts++; forwarded = message; if (attempts === 1) throw new Error('Receiving end does not exist'); return { ok: true }; } },
+      tabs: { async get() { return { url: 'https://www.tiktok.com/@test/video/123' }; }, async sendMessage(_tabId, message) { attempts++; forwarded = message; if (attempts === 1) throw new Error('Receiving end does not exist'); return { ok: true }; } },
       scripting: { async executeScript(details) { injected = details; } }
     }
   };
@@ -70,11 +70,47 @@ const run = (name, context) => vm.runInNewContext(read(name), context, { filenam
 }
 
 {
+  let click;
+  let sent;
+  let badge;
+  const context = {
+    chrome: {
+      action: {
+        onClicked: { addListener: fn => { click = fn; } },
+        async setBadgeText({ text }) { badge = text; },
+        async setBadgeBackgroundColor() {}, async setTitle() {}
+      },
+      tabCapture: {
+        async getCapturedTabs() { return []; },
+        async getMediaStreamId() { return 'stream'; }
+      },
+      runtime: {
+        onMessage: { addListener() {} },
+        getURL: path => `chrome-extension://test/${path}`,
+        async getContexts() { return [{ contextType: 'OFFSCREEN_DOCUMENT' }]; },
+        async sendMessage(message) { sent = message; return { ok: true, mode: 'local' }; }
+      },
+      storage: { local: { async get() { return {}; } } },
+      tabs: { async sendMessage() {} }
+    }
+  };
+  run('background.js', context);
+  await click({ id: 7, url: 'https://www.youtube.com/watch?v=abcdefghijk' });
+  assert.equal(sent.type, 'start');
+  assert.equal(sent.tabId, 7);
+  assert.equal(badge, 'ON');
+  console.log('PASS background: YouTube toolbar click starts speech capture');
+}
+
+{
   const context = { globalThis: {} };
   run('detector.js', context);
   const detector = context.globalThis.AdDetector;
   assert.equal(detector.hasBrand('Реклама Floatup'), true);
   assert.equal(detector.hasBrand('заходи на Float Up и делай ап-ап'), true);
+  assert.equal(detector.hasBrand('Надоели мусорные скины? Заходи на Флоат Ап и делай ап-ап'), true);
+  assert.equal(detector.hasBrand('надоели мусорные скины'), true);
+  assert.equal(detector.hasBrand('заходи на флоат ап'), true);
   assert.equal(detector.hasBrand('заходи на и делай ап ап'), true);
   assert.equal(detector.hasBrand('флотап'), true);
   assert.equal(detector.hasBrand('флоуап'), true);
@@ -104,6 +140,55 @@ const run = (name, context) => vm.runInNewContext(read(name), context, { filenam
   assert.equal(video.currentTime, 29.9);
   assert.equal(detector.seekFourSeconds(video), false);
   console.log('PASS detector: brand, label, four-second seek, end boundary');
+}
+
+{
+  let tick;
+  let onMessage;
+  let recognition;
+  const track = { readyState: 'live', stop() {} };
+  class Speech {
+    static async available() { return 'available'; }
+    constructor() { recognition = this; }
+    start(receivedTrack) { assert.equal(receivedTrack, track); }
+    abort() {}
+  }
+  Speech.prototype.processLocally = false;
+  const video = {
+    currentTime: 5, duration: 60, paused: false, currentSrc: 'youtube-video-1',
+    captureStream: () => ({ getAudioTracks: () => [track] })
+  };
+  const context = {
+    URL, Date, SpeechRecognition: Speech,
+    location: { href: 'https://www.youtube.com/watch?v=abcdefghijk' },
+    document: {
+      querySelector: selector => selector === 'video.html5-main-video' ? video : null,
+      querySelectorAll: () => []
+    },
+    chrome: {
+      runtime: {
+        onMessage: { addListener: fn => { onMessage = fn; } },
+        sendMessage: (_message, reply) => reply({ segments: [] })
+      },
+      storage: { local: { get: async () => ({}) }, onChanged: { addListener() {} } }
+    },
+    setInterval: fn => { tick = fn; }
+  };
+  context.globalThis = context;
+  run('detector.js', context);
+  run('youtube.js', context);
+  await new Promise(resolve => setImmediate(resolve));
+  tick();
+  recognition.onresult({ resultIndex: 0, results: [[{ transcript: 'Заходи на Флоат Ап и делай ап ап' }]] });
+  assert.equal(video.currentTime, 9);
+  let reply;
+  onMessage({ type: 'speech-context' }, {}, result => { reply = result; });
+  assert.equal(reply.key, 'abcdefghijk|youtube-video-1');
+  video.currentSrc = 'youtube-video-2';
+  onMessage({ type: 'speech-brand', context: reply }, {}, result => { reply = result; });
+  assert.equal(reply.stale, true);
+  assert.equal(video.currentTime, 9);
+  console.log('PASS YouTube: spoken Float Up and stale video guard');
 }
 
 {

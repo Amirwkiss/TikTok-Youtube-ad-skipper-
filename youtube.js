@@ -6,6 +6,99 @@
   let lastSkip = -1;
   let lastCaption = '';
   let lastCaptionSkipAt = 0;
+  const Speech = globalThis.SpeechRecognition;
+  let speechMode = null;
+  let speechSession = null;
+  let speechRetryAt = 0;
+  let lastSpokenSkipAt = 0;
+
+  if (Speech?.available && 'processLocally' in Speech.prototype) {
+    Speech.available({ langs: ['ru-RU'], processLocally: true }).then(async status => {
+      if (status === 'available' || (status === 'downloadable' && Speech.install &&
+        await Speech.install({ langs: ['ru-RU'] }))) speechMode = 'local';
+    }).catch(() => {});
+  }
+  chrome.storage?.local?.get('allowCloudSpeech')?.then(settings => {
+    if (settings.allowCloudSpeech === true && !speechMode && Speech) speechMode = 'cloud';
+  }).catch(() => {});
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area !== 'local' || !changes.allowCloudSpeech) return;
+    if (changes.allowCloudSpeech.newValue === true && !speechMode && Speech) speechMode = 'cloud';
+    if (changes.allowCloudSpeech.newValue !== true && speechMode === 'cloud') {
+      speechMode = null;
+      stopSpeech();
+    }
+  });
+
+  function stopSpeech() {
+    const old = speechSession;
+    speechSession = null;
+    if (!old) return;
+    old.recognition.onend = null;
+    old.recognition.onresult = null;
+    old.recognition.onerror = null;
+    try { old.recognition.abort(); } catch (_) {}
+    old.track.stop();
+  }
+
+  function activeKey() {
+    return `${currentId() || ''}|${video?.currentSrc || video?.src || ''}`;
+  }
+
+  function skipSpoken() {
+    if (!video || video.paused || document.querySelector('.ad-showing')) return { ok: false, reason: 'нет активного видео' };
+    if (Date.now() - lastSpokenSkipAt < 2500) return { ok: false, reason: 'недавний переход' };
+    if (!AdDetector.seekFourSeconds(video)) return { ok: false, reason: 'перемотка недоступна' };
+    lastSpokenSkipAt = Date.now();
+    stopSpeech();
+    return { ok: true };
+  }
+
+  function listenToVideo() {
+    if (!speechMode || !video || typeof video.captureStream !== 'function' || Date.now() < speechRetryAt) return;
+    const key = activeKey();
+    if (speechSession?.video === video && speechSession.key === key) return;
+    stopSpeech();
+    let track;
+    try { track = video.captureStream().getAudioTracks().find(item => item.readyState === 'live'); }
+    catch (_) { return; }
+    if (!track) return;
+    const recognition = new Speech();
+    recognition.lang = 'ru-RU';
+    recognition.processLocally = speechMode === 'local';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 5;
+    const session = { video, key, track, recognition };
+    speechSession = session;
+    recognition.onresult = event => {
+      if (speechSession !== session || activeKey() !== key || video.paused) return;
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        for (let j = 0; j < Math.min(result?.length || 0, 5); j++) {
+          if (AdDetector.hasBrand(result[j]?.transcript) && skipSpoken().ok) return;
+        }
+      }
+    };
+    recognition.onerror = event => {
+      if (event.error === 'not-allowed' || event.error === 'language-not-supported') {
+        speechMode = null;
+        stopSpeech();
+      }
+      if (event.error === 'network') speechRetryAt = Date.now() + 5000;
+    };
+    recognition.onend = () => {
+      if (speechSession === session) {
+        speechSession = null;
+        track.stop();
+        speechRetryAt = Date.now() + 400;
+      }
+    };
+    try { recognition.start(track); } catch (_) {
+      stopSpeech();
+      speechRetryAt = Date.now() + 3000;
+    }
+  }
 
   function currentId() {
     const url = new URL(location.href);
@@ -37,9 +130,11 @@
       lastCaption = '';
       lastCaptionSkipAt = 0;
       segments = [];
+      stopSpeech();
       if (id && video) load(id);
     }
     if (!id || !video || video.paused || !Number.isFinite(video.duration) || document.querySelector('.ad-showing')) return;
+    listenToVideo();
     const segment = segments.find(([start, end]) => video.currentTime >= start && video.currentTime < end - 0.15);
     if (segment && lastSkip !== segment[1]) {
       video.currentTime = Math.min(segment[1], video.duration);
@@ -58,6 +153,24 @@
       }
     }
   }
+
+  chrome.runtime?.onMessage?.addListener((message, _sender, reply) => {
+    if (message?.type === 'speech-context') {
+      reply(video && !video.paused ? { key: activeKey(), time: video.currentTime } : null);
+      return;
+    }
+    if (message?.type === 'speech-brand') {
+      if (!video || video.paused || (message.context &&
+        (message.context.key !== activeKey() ||
+          !Number.isFinite(message.context.time) ||
+          video.currentTime - message.context.time > 7 ||
+          video.currentTime < message.context.time - 1))) {
+        reply({ ok: false, stale: true, reason: 'видео сменилось или фраза распознана слишком поздно' });
+        return;
+      }
+      reply(skipSpoken());
+    }
+  });
 
   setInterval(tick, 350);
 })();

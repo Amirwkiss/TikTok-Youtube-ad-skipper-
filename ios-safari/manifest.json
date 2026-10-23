@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Пропуск рекламы в видео — Safari",
+  "version": "0.7.0",
+  "description": "Пропуск распознанных рекламных фраз в TikTok и YouTube, открытых в Safari.",
+  "host_permissions": ["https://sponsor.ajay.app/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{
+    "matches": ["https://www.tiktok.com/*", "https://www.youtube.com/*", "https://m.youtube.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}

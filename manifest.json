@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Пропуск рекламы в видео",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Пропускает спонсорские отрезки YouTube и распознанные рекламные фразы в видео YouTube и TikTok.",
   "permissions": ["activeTab", "offscreen", "scripting", "storage", "tabCapture"],
   "host_permissions": ["https://sponsor.ajay.app/*"],

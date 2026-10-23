@@ -1,9 +1,9 @@
-name: Publish v0.6.0
+name: Publish v0.7.0
 
 on:
   push:
     branches: [main]
-    paths: [ad-skipper-0.6.0.zip, README.md, RELEASE_NOTES.md]
+    paths: [ad-skipper-0.7.0.zip]
   workflow_dispatch:
 
 permissions:
@@ -18,12 +18,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.6.0 >/dev/null 2>&1; then
-            gh release edit v0.6.0 --notes-file RELEASE_NOTES.md
-            gh release upload v0.6.0 ad-skipper-0.6.0.zip --clobber
+          if gh release view v0.7.0 >/dev/null 2>&1; then
+            gh release edit v0.7.0 --notes-file RELEASE_NOTES.md
+            gh release upload v0.7.0 ad-skipper-0.7.0.zip ad-skipper-safari-iphone-0.7.0.zip --clobber
           else
-            gh release create v0.6.0 ad-skipper-0.6.0.zip \
-              --title "v0.6.0" \
+            gh release create v0.7.0 ad-skipper-0.7.0.zip ad-skipper-safari-iphone-0.7.0.zip \
+              --title "v0.7.0" \
               --notes-file RELEASE_NOTES.md \
               --target "$GITHUB_SHA"
           fi
